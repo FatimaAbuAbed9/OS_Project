@@ -2,7 +2,7 @@ CC     = gcc
 CFLAGS = -Wall -O2 -std=c11
 RAYLIB = -lraylib -lm
 
-.PHONY: all milestone1 milestone2 milestone3 clean
+.PHONY: all milestone1 milestone2 milestone3 milestone4 milestone4-headless test clean
 
 all: milestone1 milestone3
 
@@ -17,5 +17,19 @@ milestone3: sim
 sim: sim.c
 	$(CC) $(CFLAGS) -o sim sim.c $(RAYLIB)
 
+# Milestone 4: multiple processes + a parent process (GUI, for grading).
+# Run with: ./sim <file_name>
+milestone4: sim4.c
+	$(CC) $(CFLAGS) -o sim sim4.c $(RAYLIB)
+
+# Headless build of milestone 4 used by the automated tests.
+# No raylib and no display required; produces ./sim_test.
+milestone4-headless: sim4.c
+	$(CC) $(CFLAGS) -DHEADLESS -o sim_test sim4.c -lm
+
+# Build the headless binary and run the milestone-4 test suite.
+test: milestone4-headless
+	bash tests/run_tests.sh
+
 clean:
-	rm -f dijkstra sim *.o
+	rm -f dijkstra sim sim_test *.o
