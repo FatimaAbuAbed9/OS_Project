@@ -1,0 +1,9 @@
+# compiled binaries
+dijkstra
+sim
+sim_test
+main
+*.o
+# IDE / build dirs
+.idea/
+cmake-build-*/
