@@ -1,0 +1,31 @@
+# FCFS vs SJF demo for milestone 7.
+# Node 3 is the bottleneck. T0 is a "blocker": it reaches node 3 quickly
+# (edge weight 1) and occupies it for the full 1s NODE_WAIT, since its path
+# continues on to node 5.
+#
+# While T0 occupies node 3, both T1 and T2 arrive and queue:
+#   T1 requests node 3 at ~0.6s (edge weight 2), remaining trip after node 3
+#      is node 3 -> 6 (weight 5)  -> remaining = 5  (LONG remaining trip)
+#   T2 requests node 3 at ~0.9s (edge weight 3), remaining trip after node 3
+#      is node 3 -> 5 (weight 1)  -> remaining = 1  (SHORT remaining trip)
+#
+# When T0 releases node 3 at ~1.3s, both T1 and T2 are already queued:
+#   -schd fcfs : picks the EARLIEST request -> T1 goes first (long trip blocks
+#                the short one -- the classic FCFS "convoy effect").
+#   -schd sjf  : picks the SMALLEST remaining distance -> T2 goes first, even
+#                though it arrived later -- SJF reorders by remaining trip.
+#
+# Compare:
+#   ./sim7_test -schd fcfs tests/inputs/g_schedule.txt
+#   ./sim7_test -schd sjf  tests/inputs/g_schedule.txt
+# and look at the order of "[PID=...] arrived at node 3" lines for T1 vs T2.
+7 5
+0 3 1
+1 3 2
+2 3 3
+3 5 1
+3 6 5
+3
+0 5
+1 6
+2 5

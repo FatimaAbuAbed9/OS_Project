@@ -19,6 +19,8 @@ make milestone5           # builds the ./sim5 binary for milestone 5 (pipe IPC)
 make milestone5-headless  # builds the ./sim5_test headless binary for milestone 5
 make milestone6           # builds the ./sim6 binary for milestone 6 (semaphore node locks)
 make milestone6-headless  # builds the ./sim6_test headless binary for milestone 6
+make milestone7           # builds the ./sim7 binary for milestone 7 (FCFS / SJF scheduling)
+make milestone7-headless  # builds the ./sim7_test headless binary for milestone 7
 make test                 # builds the headless test binary and runs the milestone-4 tests
 make clean                # remove all compiled binaries
 ```
@@ -381,6 +383,133 @@ $ ./sim6_test tests/inputs/g_page3.txt
 
 ---
 
+### Milestone 7 — Scheduling algorithms for node entry (`sim7.c`)
+
+Milestone 6's mutual exclusion used a POSIX semaphore: when a node frees up, the
+**kernel** decides which blocked process wakes up first, and the application has no
+control over that order. Milestone 7 replaces that with an explicit scheduler:
+**the parent owns a waiting queue per node** and picks the next traveler itself,
+using one of two selectable algorithms.
+
+```bash
+./sim7 -schd fcfs <file_name>
+./sim7 -schd sjf  <file_name>
+```
+
+(The spec's example command is `./sim -schd fcfs <file_name>`; this repo keeps the
+`sim5` / `sim6` / `sim7` per-milestone naming convention already in place, so the
+equivalent binary here is `sim7`.)
+
+#### Why semaphores had to go: bidirectional pipes + an explicit grant
+
+A semaphore can only say "go" to *whoever the kernel wakes up* — it cannot be told
+"go to this specific process." To let the parent choose, the child must *ask* and
+then *wait for a reply*, which needs a second pipe in the **parent → child**
+direction (M5/M6 only ever needed child → parent).
+
+| Direction | Pipe | Messages |
+|-----------|------|----------|
+| child → parent (`c2p`) | one per traveler, parent reads | `MSG_PATH`, `MSG_REQUEST`, `MSG_RELEASE` |
+| parent → child (`p2c`) | one per traveler, parent writes | `MSG_GRANT` |
+
+**Protocol per hop**, replacing M6's `sem_wait` / `sem_post`:
+
+```
+usleep(edge_weight × 300 ms)                 -- edge traversal
+write MSG_REQUEST(node, next, remaining, t)  -- ask to enter; carries the
+                                                 scheduling keys (see below)
+block on read() for MSG_GRANT                -- parent decides when this returns
+usleep(1 s)                                   -- stay (intermediate nodes only)
+write MSG_RELEASE(node, total_wait)          -- leave; lets the parent dispatch
+                                                 the next queued traveler
+```
+
+The parent prints the `[PID=...] arrived at node X | next node: Y` line at the
+moment it **grants** entry (the M7 equivalent of M6's `MSG_ENTER` handler) — so
+terminal output stays identical in format between M5/M6/M7.
+
+#### Scheduling keys carried in `MSG_REQUEST`
+
+| Field | Used by | Meaning |
+|-------|---------|---------|
+| `t_req` | FCFS | `CLOCK_MONOTONIC` timestamp when the request was sent |
+| `remaining` | SJF | Sum of edge weights from this node to the traveler's destination |
+
+**FCFS** picks the queued request with the smallest `t_req` — first to ask, first
+served.
+
+**SJF** picks the queued request with the smallest `remaining` — shortest
+remaining trip served first, ties broken by `t_req`. "Remaining trip distance" was
+chosen as the job-length metric (rather than just the next edge's weight) because
+it is the direct analogue of "remaining burst time" in CPU scheduling, and every
+child already computes it for free from its own Dijkstra path — no input-file
+changes needed.
+
+A real timestamp (not "order the parent happened to read the pipes in") is used
+for both keys so that ties caused by multiple requests landing in the same
+`select()`/`drain_pipes()` batch are still resolved by actual chronological order.
+
+#### No deadlock
+
+Same structural argument as M6: a child holds at most one node's grant at a time
+(`request → block for grant → release → travel → request next`). Hold-and-wait is
+never possible.
+
+#### Starvation: FCFS vs. SJF (the actual point of comparing them)
+
+* **FCFS** — impossible. A queue position only ever improves with time; bounded
+  wait of at most `(waiters ahead) × hold_time`.
+* **SJF** — **not** guaranteed, by design. A traveler with a long remaining trip
+  can be passed over indefinitely by a steady stream of shorter-trip travelers
+  arriving at the same node. This is the standard SJF tradeoff (lower average
+  wait, no fairness guarantee), not a bug — it's exactly what
+  `tests/inputs/g_schedule.txt` is built to demonstrate.
+
+#### Demo: `tests/inputs/g_schedule.txt`
+
+Three travelers converge on node 3. T0 occupies node 3 first (a 1 s "blocker").
+While T0 holds the node, T1 (long remaining trip: node 3 → 6, weight 5) and T2
+(short remaining trip: node 3 → 5, weight 1) both queue up, with T1's request
+landing *before* T2's.
+
+```
+$ make milestone7-headless
+
+$ ./sim7_test -schd fcfs tests/inputs/g_schedule.txt
+...
+[PID=...] arrived at node 3 | next node: 6     <- T1 served first (earliest request)
+[PID=...] arrived at node 3 | next node: 5     <- T2 served second
+[STATS] scheduler=FCFS travelers=3 avg_wait=...
+
+$ ./sim7_test -schd sjf  tests/inputs/g_schedule.txt
+...
+[PID=...] arrived at node 3 | next node: 5     <- T2 served first (shorter remaining trip)
+[PID=...] arrived at node 3 | next node: 6     <- T1 served second, despite asking first
+[STATS] scheduler=SJF  travelers=3 avg_wait=...
+```
+
+The `[STATS] ... avg_wait=...` line (printed once at the end of every run, by
+both the GUI and headless binaries) is the quantitative side of the comparison:
+run the same input file under both schedulers and diff the `avg_wait` values —
+SJF should show a **lower average wait** on this input, at the cost of T1 (the
+long trip) waiting longer than it would have under FCFS.
+
+#### GUI
+
+* Title bar and bottom panel both display the active scheduler (`Scheduler: FCFS`
+  / `Scheduler: SJF`).
+* Waiting dots (same outside-node white-dot style as M6) are labeled with their
+  `remaining` value (`r5`, `r1`, ...) so the scheduler's choice is visible on
+  screen, not just in the terminal.
+* The "All travelers arrived!" banner includes the run's average wait time.
+
+```
+$ make milestone7
+$ ./sim7 -schd sjf tests/inputs/g_schedule.txt
+```
+
+---
+
 ## Testing
 
 Milestone 4 ships with an automated test suite plus a manual checklist for the visual
@@ -426,6 +555,7 @@ The visual-only requirements (distinct colors on screen, simultaneous movement) 
 ├── sim4.c        # milestone 4 — multiple travelers (fork + signals + GUI)
 ├── sim5.c        # milestone 5 — children compute own routes, pipe IPC
 ├── sim6.c        # milestone 6 — node mutual exclusion via POSIX semaphores
+├── sim7.c        # milestone 7 — FCFS / SJF scheduling for node entry
 ├── Makefile      # build targets for all milestones
 ├── input.txt     # sample graph
 ├── README.md     # this file

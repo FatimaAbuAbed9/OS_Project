@@ -2,7 +2,7 @@ CC     = gcc
 CFLAGS = -Wall -O2 -std=c11
 RAYLIB = -lraylib -lm
 
-.PHONY: all milestone1 milestone2 milestone3 milestone4 milestone4-headless milestone5 milestone5-headless milestone6 milestone6-headless test clean
+.PHONY: all milestone1 milestone2 milestone3 milestone4 milestone4-headless milestone5 milestone5-headless milestone6 milestone6-headless milestone7 milestone7-headless test clean
 
 all: milestone1 milestone3
 
@@ -44,9 +44,18 @@ milestone6: sim6.c
 milestone6-headless: sim6.c
 	$(CC) $(CFLAGS) -DHEADLESS -o sim6_test sim6.c -lm -lpthread
 
+# Milestone 7: scheduler-driven node entry (parent-managed queue: FCFS / SJF).
+# Run with: ./sim7 -schd fcfs <file_name>  or  ./sim7 -schd sjf <file_name>
+milestone7: sim7.c
+	$(CC) $(CFLAGS) -o sim7 sim7.c $(RAYLIB)
+
+# Headless build of milestone 7 (no raylib, no display required).
+milestone7-headless: sim7.c
+	$(CC) $(CFLAGS) -DHEADLESS -o sim7_test sim7.c -lm
+
 # Build the headless binary and run the milestone-4 test suite.
 test: milestone4-headless
 	bash tests/run_tests.sh
 
 clean:
-	rm -f dijkstra sim sim_test sim5 sim5_test sim6 sim6_test *.o
+	rm -f dijkstra sim sim_test sim5 sim5_test sim6 sim6_test sim7 sim7_test *.o
