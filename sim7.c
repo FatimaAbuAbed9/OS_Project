@@ -421,6 +421,7 @@ static void enqueue_request(int node, int trav_idx, int next, long long remainin
     q->items[q->count].remaining = remaining;
     q->items[q->count].t_req     = t_req;
     q->count++;
+	printf("[SCHEDULER] Traveler %d added to waiting queue for node %d (remaining=%lld, t_req=%.3f)\n", trav_idx, node, remaining, t_req);
 }
 
 static void dispatch_node(int node, Traveler *trav) {
@@ -440,6 +441,7 @@ static void dispatch_node(int node, Traveler *trav) {
     }
 
     PendingReq r = q->items[pick];
+	printf("[SCHEDULER] %s selected Traveler %d for node %d (remaining=%lld)\n", algo_name(), r.trav_idx, node, r.remaining);
     for (int i = pick; i < q->count - 1; i++) q->items[i] = q->items[i + 1];
     q->count--;
 
