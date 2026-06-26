@@ -81,7 +81,7 @@ typedef enum { ANIM_AT_NODE, ANIM_ON_EDGE, ANIM_FINISHED } AnimState;
 /* ---- pipe message ---- */
 #define MSG_PATH    0   /* child -> parent: computed path (sent once, first)  */
 #define MSG_ARRIVE  1   /* child -> parent: arrived at a new node             */
-
+#define MSG_STUCK   2   /* child -> parent: no path found */
 typedef struct {
     int       type;            /* MSG_PATH or MSG_ARRIVE                      */
     /* MSG_PATH fields */
@@ -91,6 +91,8 @@ typedef struct {
     /* MSG_ARRIVE fields */
     int       current;         /* node just arrived at                        */
     int       next;            /* next node in path; -1 = at destination      */
+    int stuck;              /* 1 if no path found */
+
 } TravelMsg;
 
 typedef struct {
@@ -333,6 +335,14 @@ static int drain_pipes(Traveler *trav, int n) {
                 }
                 break; /* only one MSG_PATH per pipe; switch to ARRIVE reads */
             }
+            if (msg.type == MSG_STUCK) {
+    printf("[PID=%d] STUCK: no path found!\n", (int)trav[i].pid);
+    fflush(stdout);
+    trav[i].state = ANIM_FINISHED;
+    close(trav[i].pipe_fd[0]);
+    trav[i].pipe_fd[0] = -1;
+    break;
+}
 
             /* MSG_ARRIVE */
             trav[i].x = nx[msg.current];
@@ -565,8 +575,15 @@ int main(int argc, char *argv[]) {
             if (src == dst) {
                 path[0] = src; plen = 1; wt = 0;
             } else {
-                if (!dijkstra(&g, src, dst, path, &plen, &wt))
-                    plen = 0;   /* no path */
+                if (!dijkstra(&g, src, dst, path, &plen, &wt)){
+                    TravelMsg sm;
+                    memset(&sm, 0, sizeof sm);
+                    sm.type = MSG_STUCK;
+                    { ssize_t wr = write(wfd, &sm, sizeof sm); (void)wr; }
+                    close(wfd);
+                    _exit(0);
+                }
+    
             }
 
             /* Send MSG_PATH so parent can draw the route visualization. */
